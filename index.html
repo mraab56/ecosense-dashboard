@@ -22,13 +22,6 @@
             </div>
             <div class="status-bar">
                 <span id="connection-status"><i class="fa-solid fa-circle-notch fa-spin"></i> Connecting...</span>
-                <div class="toggle-container">
-                    <label class="switch">
-                        <input type="checkbox" id="demo-mode-toggle">
-                        <span class="slider round"></span>
-                    </label>
-                    <span class="toggle-label">Demo Mode</span>
-                </div>
             </div>
         </header>
 
@@ -57,19 +50,6 @@
                 </div>
                 <div class="card-sub">
                     Dew Point: <span id="val-dew">--</span>°C
-                </div>
-            </div>
-
-            <!-- Battery Card -->
-            <div class="card glass" id="card-batt">
-                <div class="card-header">
-                    <i class="fa-solid fa-battery-full"></i> Battery
-                </div>
-                <div class="card-value">
-                    <span id="val-batt">--</span><span class="unit">%</span>
-                </div>
-                <div class="card-sub">
-                    <span id="val-voltage">--</span> mV | Est. <span id="val-days">--</span> days left
                 </div>
             </div>
         </div>
@@ -107,6 +87,7 @@
                 <button class="btn active" onclick="setRange('24h')">24h</button>
                 <button class="btn" onclick="setRange('7d')">7 Days</button>
                 <button class="btn" onclick="setRange('30d')">30 Days</button>
+                <button class="btn" onclick="setRange('max')">Max</button>
             </div>
         </div>
     </div>
