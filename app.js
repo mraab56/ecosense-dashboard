@@ -3,7 +3,7 @@
 // Configuration
 const CONFIG = {
     demoMode: false,
-    updateInterval: 60000, // Check Firebase every 60 seconds (data comes every 3 minutes)
+    updateInterval: 180000, // Check Firebase every 3 minutes (180 seconds = 180000ms)
     firebaseUrl: "https://ecosense-b00a7-default-rtdb.asia-southeast1.firebasedatabase.app/readings.json"
 };
 
@@ -129,52 +129,93 @@ async function fetchFirebaseData() {
 }
 
 function processFirebaseReadings(readings) {
+    console.log('Processing readings, total count:', readings.length);
+    
+    // OPTIMIZATION: Only take the last 50 readings to avoid performance issues
+    const recentReadings = readings.slice(0, 50);
+    console.log('Processing only the most recent 50 readings');
+    
     // Clear historical data
     historicalData = [];
     
-    console.log('Processing readings, total count:', readings.length);
-    
     // Process each reading
-    readings.forEach((reading, index) => {
-        console.log(`Reading ${index}:`, reading);
+    recentReadings.forEach((reading, index) => {
+        let dataAdded = false;
         
-        // YOUR FORMAT: {device, humidity, reading, rssi, temperature, timestamp}
-        if (reading.temperature !== undefined && reading.humidity !== undefined) {
-            // Convert timestamp (milliseconds) to Date object
-            const timestamp = reading.timestamp ? 
-                new Date(reading.timestamp) : 
-                new Date();
+        // FORMAT 1: Old batched format {boot, data: [{t, h, v}]}
+        if (reading.data && Array.isArray(reading.data)) {
+            reading.data.forEach((dataPoint) => {
+                // Skip invalid readings
+                if (dataPoint.t === 0 && dataPoint.h === 0) return;
+                
+                // Fix timestamp: if it's too small, it's in seconds not milliseconds
+                let timestamp;
+                if (reading.timestamp) {
+                    const ts = reading.timestamp;
+                    // If timestamp is less than year 2000 in milliseconds, it's probably in seconds
+                    timestamp = ts < 946684800000 ? new Date(ts * 1000) : new Date(ts);
+                } else {
+                    timestamp = new Date();
+                }
+                
+                historicalData.push({
+                    t: dataPoint.t,
+                    h: dataPoint.h,
+                    v: dataPoint.v || 3300,
+                    ts: timestamp,
+                    rssi: 0
+                });
+                dataAdded = true;
+            });
+        }
+        // FORMAT 2: New single reading {temperature, humidity, rssi, ...}
+        else if (reading.temperature !== undefined && reading.humidity !== undefined) {
+            // Skip invalid readings
+            if (reading.temperature === 0 && reading.humidity === 0) return;
+            
+            // Fix timestamp: if it's too small, it's in seconds not milliseconds
+            let timestamp;
+            if (reading.timestamp) {
+                const ts = reading.timestamp;
+                // If timestamp is less than year 2000 in milliseconds, it's probably in seconds
+                timestamp = ts < 946684800000 ? new Date(ts * 1000) : new Date(ts);
+            } else {
+                timestamp = new Date();
+            }
             
             historicalData.push({
                 t: reading.temperature,
                 h: reading.humidity,
-                v: 3300, // Default voltage (we can calculate from rssi if needed)
+                v: 3300,
                 ts: timestamp,
                 rssi: reading.rssi || 0
             });
-            
-            console.log(`Added data point: T=${reading.temperature}, H=${reading.humidity}`);
-        } else {
-            console.log('Skipping reading - missing temperature or humidity:', reading);
+            dataAdded = true;
+        }
+        
+        if (!dataAdded) {
+            console.log(`⚠️ Skipping reading ${index} - unknown format`);
         }
     });
     
     // Sort by timestamp (oldest to newest for chart)
     historicalData.sort((a, b) => a.ts - b.ts);
     
-    console.log('Total processed data points:', historicalData.length);
-    
-    // Keep only last 100 readings for better history
-    if (historicalData.length > 100) {
-        historicalData = historicalData.slice(-100);
-    }
+    console.log('✅ Total valid data points:', historicalData.length);
     
     // Update UI with latest reading
     if (historicalData.length > 0) {
         const latest = historicalData[historicalData.length - 1];
-        console.log('Latest reading to display:', latest);
+        console.log('📊 Latest reading:', {
+            temp: latest.t,
+            hum: latest.h,
+            time: latest.ts.toLocaleString()
+        });
+        
         updateUI(latest);
         updateChart();
+        
+        console.log('✅ UI and Chart updated successfully!');
     } else {
         console.log('❌ No valid data to display!');
     }
