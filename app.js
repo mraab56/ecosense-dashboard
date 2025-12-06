@@ -29,22 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('🚀 EcoSense Dashboard Starting...');
     
     initChart();
-    
-    const savedDemo = localStorage.getItem('demoMode') === 'true';
-    els.demoToggle.checked = savedDemo;
-    CONFIG.demoMode = savedDemo;
-    
-    if (CONFIG.demoMode) {
-        startSimulation();
-    } else {
-        startFirebaseFetching();
-    }
-    
-    els.demoToggle.addEventListener('change', (e) => {
-        CONFIG.demoMode = e.target.checked;
-        localStorage.setItem('demoMode', CONFIG.demoMode);
-        location.reload(); // Simple reload for mode change
-    });
+    startFirebaseFetching();
 });
 
 // ========== FIREBASE FUNCTIONS ==========
@@ -105,12 +90,12 @@ async function fetchInitialHistory() {
         
         // Convert to our format
         historicalData = recentReadings.map(r => {
-            let ts;
-            if (r.timestamp < 946684800000) {
-                ts = new Date(r.timestamp * 1000);
-            } else {
-                ts = new Date(r.timestamp);
-            }
+            // Use current time offset backwards for historical data
+            // This creates proper timestamps for the last 50 readings
+            const now = Date.now();
+            const index = recentReadings.indexOf(r);
+            // Space readings out by 1 minute each going backwards
+            const ts = new Date(now - ((recentReadings.length - index - 1) * 60000));
             
             return {
                 t: r.temperature,
@@ -124,6 +109,9 @@ async function fetchInitialHistory() {
         
         // Sort by time (oldest to newest)
         historicalData.sort((a, b) => a.ts - b.ts);
+        
+        // Also populate allHistoricalData for chart ranges
+        allHistoricalData = [...historicalData];
         
         console.log('✅ Loaded', historicalData.length, 'historical readings');
         
@@ -234,13 +222,8 @@ function processData(firebaseData) {
     // Update last processed timestamp
     lastProcessedTimestamp = maxTimestamp;
     
-    // Fix timestamp: convert from seconds to milliseconds if needed
-    let ts;
-    if (maxTimestamp < 946684800000) {
-        ts = new Date(maxTimestamp * 1000);
-    } else {
-        ts = new Date(maxTimestamp);
-    }
+    // Create proper timestamp - use current time since ESP8266 timestamp is from millis()
+    const ts = new Date(); // Use actual current time
     
     // Create averaged data point
     const averagedReading = {
@@ -255,7 +238,10 @@ function processData(firebaseData) {
     // Add to historical data
     historicalData.push(averagedReading);
     
-    // Keep only last 50 data points
+    // Also add to allHistoricalData (never truncate this for chart ranges)
+    allHistoricalData.push(averagedReading);
+    
+    // Keep only last 50 data points in main array (for performance)
     if (historicalData.length > 50) {
         historicalData.shift();
     }
@@ -300,12 +286,6 @@ function updateUI(data) {
     // Main values
     els.temp.textContent = data.t.toFixed(1);
     els.hum.textContent = data.h.toFixed(1);
-    
-    // Battery (fake calculation for now)
-    const pct = Math.max(0, Math.min(100, (data.v - 3300) / (4200 - 3300) * 100));
-    els.batt.textContent = Math.round(pct);
-    els.voltage.textContent = Math.round(data.v);
-    els.days.textContent = Math.round(pct * 5);
     
     // Calculated values
     const dewPoint = calculateDewPoint(data.t, data.h);
@@ -406,42 +386,59 @@ function initChart() {
     });
 }
 
-// ========== DEMO MODE ==========
-let simInterval;
-function startSimulation() {
-    if (simInterval) clearInterval(simInterval);
+// ========== DEMO MODE (REMOVED) ==========
+// Demo mode has been completely removed
+
+// ========== CHART TIME RANGE FUNCTIONS ==========
+let currentRange = '24h';
+let allHistoricalData = []; // Store ALL data points
+
+function setRange(range) {
+    console.log('📊 Changing chart range to:', range);
+    currentRange = range;
     
-    els.status.innerHTML = '<i class="fa-solid fa-circle-check"></i> Demo Mode';
+    // Update button styles
+    document.querySelectorAll('.chart-controls .btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    event.target.classList.add('active');
     
-    const now = new Date();
-    historicalData = [];
-    for (let i = 20; i > 0; i--) {
-        historicalData.push({
-            t: 22 + Math.sin(i) * 2 + Math.random(),
-            h: 50 + Math.cos(i) * 5 + Math.random(),
-            v: 4100 - (i * 2),
-            ts: new Date(now.getTime() - i * 30 * 60000)
-        });
+    // Filter data based on range
+    const now = Date.now();
+    let filteredData;
+    
+    switch(range) {
+        case '24h':
+            // Last 24 hours
+            filteredData = allHistoricalData.filter(d => 
+                now - d.ts.getTime() <= 24 * 60 * 60 * 1000
+            );
+            break;
+        case '7d':
+            // Last 7 days
+            filteredData = allHistoricalData.filter(d => 
+                now - d.ts.getTime() <= 7 * 24 * 60 * 60 * 1000
+            );
+            break;
+        case '30d':
+            // Last 30 days
+            filteredData = allHistoricalData.filter(d => 
+                now - d.ts.getTime() <= 30 * 24 * 60 * 60 * 1000
+            );
+            break;
+        case 'max':
+            // All data
+            filteredData = allHistoricalData;
+            break;
+        default:
+            filteredData = allHistoricalData;
     }
     
-    updateUI(historicalData[historicalData.length - 1]);
-    updateChart();
+    console.log('📈 Showing', filteredData.length, 'data points for range:', range);
     
-    simInterval = setInterval(() => {
-        const last = historicalData[historicalData.length - 1];
-        const newReading = {
-            t: last.t + (Math.random() - 0.5),
-            h: last.h + (Math.random() - 0.5) * 2,
-            v: last.v - 0.1,
-            ts: new Date()
-        };
-        
-        if (historicalData.length > 50) historicalData.shift();
-        historicalData.push(newReading);
-        
-        updateUI(newReading);
-        updateChart();
-    }, 2000);
+    // Update chart with filtered data
+    historicalData = filteredData;
+    updateChart();
 }
 
 // ========== RAIN ALERT ==========
