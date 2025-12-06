@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EcoSense | Ultra-Efficient Monitor</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+    <div class="background-orb orb-1"></div>
+    <div class="background-orb orb-2"></div>
+
+    <div class="container">
+        <header>
+            <div class="logo">
+                <i class="fa-solid fa-leaf"></i> EcoSense
+            </div>
+            <div class="status-bar">
+                <span id="connection-status"><i class="fa-solid fa-circle-notch fa-spin"></i> Connecting...</span>
+                <div class="toggle-container">
+                    <label class="switch">
+                        <input type="checkbox" id="demo-mode-toggle">
+                        <span class="slider round"></span>
+                    </label>
+                    <span class="toggle-label">Demo Mode</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Cards -->
+        <div class="grid-dashboard">
+            <!-- Temperature Card -->
+            <div class="card glass" id="card-temp">
+                <div class="card-header">
+                    <i class="fa-solid fa-temperature-half"></i> Temperature
+                </div>
+                <div class="card-value">
+                    <span id="val-temp">--</span><span class="unit">°C</span>
+                </div>
+                <div class="card-sub">
+                    Feels like <span id="val-feels-like">--</span>°C
+                </div>
+            </div>
+
+            <!-- Humidity Card -->
+            <div class="card glass" id="card-hum">
+                <div class="card-header">
+                    <i class="fa-solid fa-droplet"></i> Humidity
+                </div>
+                <div class="card-value">
+                    <span id="val-hum">--</span><span class="unit">%</span>
+                </div>
+                <div class="card-sub">
+                    Dew Point: <span id="val-dew">--</span>°C
+                </div>
+            </div>
+
+            <!-- Battery Card -->
+            <div class="card glass" id="card-batt">
+                <div class="card-header">
+                    <i class="fa-solid fa-battery-full"></i> Battery
+                </div>
+                <div class="card-value">
+                    <span id="val-batt">--</span><span class="unit">%</span>
+                </div>
+                <div class="card-sub">
+                    <span id="val-voltage">--</span> mV | Est. <span id="val-days">--</span> days left
+                </div>
+            </div>
+        </div>
+
+        <!-- Insights Section -->
+        <div class="insights-section glass">
+            <h3><i class="fa-solid fa-wand-magic-sparkles"></i> Insights</h3>
+            <div class="insights-grid">
+                <div class="insight-item" id="alert-card">
+                    <div class="insight-label">Rain Alert</div>
+                    <div class="insight-val" id="insight-rain">No Rain</div>
+                    <div class="insight-sub" id="insight-rain-sub">Forecast: Clear</div>
+                </div>
+                <div class="insight-item">
+                    <div class="insight-label">Mold Risk</div>
+                    <div class="insight-val" id="insight-mold">Calculating...</div>
+                </div>
+                <div class="insight-item">
+                    <div class="insight-label">Comfort Level</div>
+                    <div class="insight-val" id="insight-comfort">Calculating...</div>
+                </div>
+                <div class="insight-item">
+                    <div class="insight-label">Absolute Humidity</div>
+                    <div class="insight-val" id="insight-abs-hum">-- g/m³</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="charts-section glass">
+            <div class="chart-container">
+                <canvas id="mainChart"></canvas>
+            </div>
+            <div class="chart-controls">
+                <button class="btn active" onclick="setRange('24h')">24h</button>
+                <button class="btn" onclick="setRange('7d')">7 Days</button>
+                <button class="btn" onclick="setRange('30d')">30 Days</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
