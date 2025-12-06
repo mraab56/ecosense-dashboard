@@ -76,18 +76,25 @@ function stopFirebaseFetching() {
 }
 
 async function fetchFirebaseData() {
+    console.log('🔄 Fetching data from Firebase...');
+    console.log('URL:', CONFIG.firebaseUrl);
+    
     try {
         const response = await fetch(CONFIG.firebaseUrl);
+        
+        console.log('Response status:', response.status);
+        console.log('Response OK:', response.ok);
         
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
         
         const data = await response.json();
+        console.log('Raw Firebase data:', data);
         
         if (!data || Object.keys(data).length === 0) {
             els.status.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> Waiting for data...';
-            console.log('No sensor data yet. ESP8266 will send data every 3 minutes.');
+            console.log('⚠️ No sensor data yet. ESP8266 will send data every 3 minutes.');
             return;
         }
         
@@ -99,7 +106,8 @@ async function fetchFirebaseData() {
             }))
             .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         
-        console.log('Fetched readings:', readings.length);
+        console.log('✅ Fetched readings count:', readings.length);
+        console.log('First reading:', readings[0]);
         
         // Get the latest reading for timestamp
         const latestReading = readings[0];
@@ -114,7 +122,7 @@ async function fetchFirebaseData() {
         processFirebaseReadings(readings);
         
     } catch (error) {
-        console.error('Firebase fetch error:', error);
+        console.error('❌ Firebase fetch error:', error);
         els.status.innerHTML = '<i class="fa-solid fa-circle-xmark"></i> Connection Error';
         console.log('Error details:', error.message);
     }
@@ -124,25 +132,15 @@ function processFirebaseReadings(readings) {
     // Clear historical data
     historicalData = [];
     
-    // Process each reading (newest to oldest)
-    readings.forEach(reading => {
-        if (reading.data && Array.isArray(reading.data)) {
-            // Batched data format from ESP8266
-            reading.data.forEach((dataPoint, index) => {
-                // Use boot count and timestamp to create unique times
-                const timestamp = reading.timestamp ? 
-                    new Date(reading.timestamp) : 
-                    new Date();
-                
-                historicalData.push({
-                    t: dataPoint.t || 0,
-                    h: dataPoint.h || 0,
-                    v: dataPoint.v || 3300,
-                    ts: timestamp
-                });
-            });
-        } else if (reading.temperature !== undefined) {
-            // Single reading format
+    console.log('Processing readings, total count:', readings.length);
+    
+    // Process each reading
+    readings.forEach((reading, index) => {
+        console.log(`Reading ${index}:`, reading);
+        
+        // YOUR FORMAT: {device, humidity, reading, rssi, temperature, timestamp}
+        if (reading.temperature !== undefined && reading.humidity !== undefined) {
+            // Convert timestamp (milliseconds) to Date object
             const timestamp = reading.timestamp ? 
                 new Date(reading.timestamp) : 
                 new Date();
@@ -150,16 +148,21 @@ function processFirebaseReadings(readings) {
             historicalData.push({
                 t: reading.temperature,
                 h: reading.humidity,
-                v: 3300, // Default voltage
-                ts: timestamp
+                v: 3300, // Default voltage (we can calculate from rssi if needed)
+                ts: timestamp,
+                rssi: reading.rssi || 0
             });
+            
+            console.log(`Added data point: T=${reading.temperature}, H=${reading.humidity}`);
+        } else {
+            console.log('Skipping reading - missing temperature or humidity:', reading);
         }
     });
     
     // Sort by timestamp (oldest to newest for chart)
     historicalData.sort((a, b) => a.ts - b.ts);
     
-    console.log('Processed data points:', historicalData.length);
+    console.log('Total processed data points:', historicalData.length);
     
     // Keep only last 100 readings for better history
     if (historicalData.length > 100) {
@@ -169,11 +172,11 @@ function processFirebaseReadings(readings) {
     // Update UI with latest reading
     if (historicalData.length > 0) {
         const latest = historicalData[historicalData.length - 1];
-        console.log('Latest reading:', latest);
+        console.log('Latest reading to display:', latest);
         updateUI(latest);
         updateChart();
     } else {
-        console.log('No valid data to display');
+        console.log('❌ No valid data to display!');
     }
 }
 
