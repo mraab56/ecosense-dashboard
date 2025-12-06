@@ -1,9 +1,9 @@
-// App.js for EcoSense Dashboard - FIXED VERSION
+// App.js for EcoSense Dashboard - COMPLETE FIXED VERSION
 
 // Configuration
 const CONFIG = {
     demoMode: false,
-    updateInterval: 10000, // Check Firebase every 10 seconds
+    updateInterval: 60000, // Check Firebase every 60 seconds (data comes every 3 minutes)
     firebaseUrl: "https://ecosense-b00a7-default-rtdb.asia-southeast1.firebasedatabase.app/readings.json"
 };
 
@@ -40,7 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (CONFIG.demoMode) {
         startSimulation();
     } else {
-        // FIXED: Start real Firebase data fetching
+        // Start real Firebase data fetching
         startFirebaseFetching();
     }
 
@@ -59,12 +59,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ================= FIREBASE DATA FETCHING =================
 async function startFirebaseFetching() {
-    els.status.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Connecting to Firebase...';
+    els.status.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Connecting...';
     
     // Fetch immediately
     await fetchFirebaseData();
     
-    // Then fetch every 10 seconds
+    // Then fetch every 60 seconds
     firebaseInterval = setInterval(fetchFirebaseData, CONFIG.updateInterval);
 }
 
@@ -86,12 +86,12 @@ async function fetchFirebaseData() {
         const data = await response.json();
         
         if (!data || Object.keys(data).length === 0) {
-            els.status.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> No Data Yet';
-            console.log('Waiting for sensor data...');
+            els.status.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> Waiting for data...';
+            console.log('No sensor data yet. ESP8266 will send data every 3 minutes.');
             return;
         }
         
-        // Convert Firebase object to array and sort by timestamp
+        // Convert Firebase object to array and sort by timestamp (newest first)
         const readings = Object.entries(data)
             .map(([key, value]) => ({
                 id: key,
@@ -99,17 +99,23 @@ async function fetchFirebaseData() {
             }))
             .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         
-        // Update status
-        els.status.innerHTML = '<i class="fa-solid fa-circle-check"></i> Live from Firebase';
+        console.log('Fetched readings:', readings.length);
         
-        // Process readings into our historicalData format
+        // Get the latest reading for timestamp
+        const latestReading = readings[0];
+        const lastDataTime = latestReading.timestamp ? 
+            new Date(latestReading.timestamp).toLocaleTimeString() : 
+            'Unknown';
+        
+        // Update status with last data time
+        els.status.innerHTML = `<i class="fa-solid fa-circle-check"></i> Live | Last: ${lastDataTime}`;
+        
+        // Process readings
         processFirebaseReadings(readings);
         
     } catch (error) {
         console.error('Firebase fetch error:', error);
         els.status.innerHTML = '<i class="fa-solid fa-circle-xmark"></i> Connection Error';
-        
-        // Show error details in console for debugging
         console.log('Error details:', error.message);
     }
 }
@@ -118,13 +124,14 @@ function processFirebaseReadings(readings) {
     // Clear historical data
     historicalData = [];
     
-    // Process each reading
+    // Process each reading (newest to oldest)
     readings.forEach(reading => {
         if (reading.data && Array.isArray(reading.data)) {
             // Batched data format from ESP8266
             reading.data.forEach((dataPoint, index) => {
+                // Use boot count and timestamp to create unique times
                 const timestamp = reading.timestamp ? 
-                    new Date(reading.timestamp + (index * 1000)) : // Spread batched readings over time
+                    new Date(reading.timestamp) : 
                     new Date();
                 
                 historicalData.push({
@@ -136,30 +143,37 @@ function processFirebaseReadings(readings) {
             });
         } else if (reading.temperature !== undefined) {
             // Single reading format
-            const timestamp = reading.timestamp ? new Date(reading.timestamp) : new Date();
+            const timestamp = reading.timestamp ? 
+                new Date(reading.timestamp) : 
+                new Date();
             
             historicalData.push({
                 t: reading.temperature,
                 h: reading.humidity,
-                v: reading.rssi ? 3700 : 3300, // Default voltage if not provided
+                v: 3300, // Default voltage
                 ts: timestamp
             });
         }
     });
     
-    // Sort by timestamp
+    // Sort by timestamp (oldest to newest for chart)
     historicalData.sort((a, b) => a.ts - b.ts);
     
-    // Keep only last 50 readings for performance
-    if (historicalData.length > 50) {
-        historicalData = historicalData.slice(-50);
+    console.log('Processed data points:', historicalData.length);
+    
+    // Keep only last 100 readings for better history
+    if (historicalData.length > 100) {
+        historicalData = historicalData.slice(-100);
     }
     
     // Update UI with latest reading
     if (historicalData.length > 0) {
         const latest = historicalData[historicalData.length - 1];
+        console.log('Latest reading:', latest);
         updateUI(latest);
         updateChart();
+    } else {
+        console.log('No valid data to display');
     }
 }
 
