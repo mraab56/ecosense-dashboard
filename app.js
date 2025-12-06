@@ -1,18 +1,17 @@
-// App.js for EcoSense Dashboard - FIXED VERSION
+// EcoSense Dashboard - Clean Working Version
+// This version is specifically designed for your Firebase format
 
-// Configuration
 const CONFIG = {
     demoMode: false,
-    updateInterval: 10000, // Check Firebase every 10 seconds
+    updateInterval: 180000, // 3 minutes in milliseconds
     firebaseUrl: "https://ecosense-b00a7-default-rtdb.asia-southeast1.firebasedatabase.app/readings.json"
 };
 
-// State
 let chart;
 let historicalData = [];
 let firebaseInterval;
 
-// DOM Elements
+// Get all DOM elements
 const els = {
     temp: document.getElementById('val-temp'),
     hum: document.getElementById('val-hum'),
@@ -28,138 +27,143 @@ const els = {
     demoToggle: document.getElementById('demo-mode-toggle')
 };
 
-// Initialization
+// Start when page loads
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('🚀 EcoSense Dashboard Starting...');
+    
     initChart();
-
-    // Check for Demo Mode preference
+    
     const savedDemo = localStorage.getItem('demoMode') === 'true';
     els.demoToggle.checked = savedDemo;
     CONFIG.demoMode = savedDemo;
-
+    
     if (CONFIG.demoMode) {
         startSimulation();
     } else {
-        // FIXED: Start real Firebase data fetching
         startFirebaseFetching();
     }
-
+    
     els.demoToggle.addEventListener('change', (e) => {
         CONFIG.demoMode = e.target.checked;
         localStorage.setItem('demoMode', CONFIG.demoMode);
-        if (CONFIG.demoMode) {
-            stopFirebaseFetching();
-            startSimulation();
-        } else {
-            stopSimulation();
-            startFirebaseFetching();
-        }
+        location.reload(); // Simple reload for mode change
     });
 });
 
-// ================= FIREBASE DATA FETCHING =================
+// ========== FIREBASE FUNCTIONS ==========
 async function startFirebaseFetching() {
-    els.status.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Connecting to Firebase...';
+    console.log('📡 Starting Firebase data fetching...');
+    els.status.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Connecting...';
     
-    // Fetch immediately
     await fetchFirebaseData();
-    
-    // Then fetch every 10 seconds
     firebaseInterval = setInterval(fetchFirebaseData, CONFIG.updateInterval);
 }
 
 function stopFirebaseFetching() {
     if (firebaseInterval) {
         clearInterval(firebaseInterval);
-        firebaseInterval = null;
     }
 }
 
 async function fetchFirebaseData() {
+    console.log('⬇️ Fetching data from Firebase...');
+    
     try {
         const response = await fetch(CONFIG.firebaseUrl);
         
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            throw new Error(`HTTP ${response.status}`);
         }
         
         const data = await response.json();
         
         if (!data || Object.keys(data).length === 0) {
-            els.status.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> No Data Yet';
-            console.log('Waiting for sensor data...');
+            console.log('⚠️ No data in Firebase yet');
+            els.status.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> No Data';
             return;
         }
         
-        // Convert Firebase object to array and sort by timestamp
-        const readings = Object.entries(data)
-            .map(([key, value]) => ({
-                id: key,
-                ...value
-            }))
-            .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-        
-        // Update status
-        els.status.innerHTML = '<i class="fa-solid fa-circle-check"></i> Live from Firebase';
-        
-        // Process readings into our historicalData format
-        processFirebaseReadings(readings);
+        console.log('✅ Data received! Processing...');
+        processData(data);
         
     } catch (error) {
-        console.error('Firebase fetch error:', error);
-        els.status.innerHTML = '<i class="fa-solid fa-circle-xmark"></i> Connection Error';
-        
-        // Show error details in console for debugging
-        console.log('Error details:', error.message);
+        console.error('❌ Fetch error:', error);
+        els.status.innerHTML = '<i class="fa-solid fa-circle-xmark"></i> Error';
     }
 }
 
-function processFirebaseReadings(readings) {
-    // Clear historical data
-    historicalData = [];
+function processData(firebaseData) {
+    // Convert Firebase object to array
+    const allReadings = Object.entries(firebaseData).map(([key, value]) => ({
+        id: key,
+        ...value
+    }));
     
-    // Process each reading
-    readings.forEach(reading => {
-        if (reading.data && Array.isArray(reading.data)) {
-            // Batched data format from ESP8266
-            reading.data.forEach((dataPoint, index) => {
-                const timestamp = reading.timestamp ? 
-                    new Date(reading.timestamp + (index * 1000)) : // Spread batched readings over time
-                    new Date();
-                
-                historicalData.push({
-                    t: dataPoint.t || 0,
-                    h: dataPoint.h || 0,
-                    v: dataPoint.v || 3300,
-                    ts: timestamp
-                });
-            });
-        } else if (reading.temperature !== undefined) {
-            // Single reading format
-            const timestamp = reading.timestamp ? new Date(reading.timestamp) : new Date();
-            
-            historicalData.push({
-                t: reading.temperature,
-                h: reading.humidity,
-                v: reading.rssi ? 3700 : 3300, // Default voltage if not provided
-                ts: timestamp
-            });
-        }
-    });
+    console.log('📊 Total readings in Firebase:', allReadings.length);
     
-    // Sort by timestamp
-    historicalData.sort((a, b) => a.ts - b.ts);
+    // Filter: only keep readings with temperature and humidity
+    const validReadings = allReadings.filter(r => 
+        r.temperature !== undefined && 
+        r.humidity !== undefined &&
+        r.temperature !== 0 &&
+        r.humidity !== 0
+    );
     
-    // Keep only last 50 readings for performance
-    if (historicalData.length > 50) {
-        historicalData = historicalData.slice(-50);
+    console.log('✅ Valid readings:', validReadings.length);
+    
+    if (validReadings.length === 0) {
+        console.log('⚠️ No valid readings found');
+        return;
     }
     
-    // Update UI with latest reading
+    // Sort by timestamp (newest first)
+    validReadings.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    
+    // Take only the last 50 readings
+    const recentReadings = validReadings.slice(0, 50);
+    
+    // Convert to our format
+    historicalData = recentReadings.map(r => {
+        // Fix timestamp: convert from seconds to milliseconds if needed
+        let ts;
+        if (r.timestamp < 946684800000) {
+            // Timestamp is in seconds, convert to milliseconds
+            ts = new Date(r.timestamp * 1000);
+        } else {
+            ts = new Date(r.timestamp);
+        }
+        
+        return {
+            t: r.temperature,
+            h: r.humidity,
+            v: 3300, // Default voltage
+            ts: ts,
+            rssi: r.rssi || 0
+        };
+    });
+    
+    // Sort by time (oldest to newest for chart)
+    historicalData.sort((a, b) => a.ts - b.ts);
+    
+    console.log('📈 Processed data points:', historicalData.length);
+    
     if (historicalData.length > 0) {
         const latest = historicalData[historicalData.length - 1];
+        console.log('🌡️ Latest reading:', {
+            temp: latest.t,
+            hum: latest.h,
+            time: latest.ts.toLocaleString()
+        });
+        
+        // Update the status bar
+        const lastTime = latest.ts.toLocaleTimeString();
+        els.status.innerHTML = `<i class="fa-solid fa-circle-check"></i> Live | ${lastTime}`;
+        
+        // Update UI and chart
         updateUI(latest);
         updateChart();
+        
+        console.log('✅ Website updated!');
     }
 }
 
@@ -169,27 +173,66 @@ function updateChart() {
     );
     const temps = historicalData.map(d => d.t);
     const hums = historicalData.map(d => d.h);
-
+    
     chart.data.labels = labels;
     chart.data.datasets[0].data = temps;
     chart.data.datasets[1].data = hums;
     chart.update('none');
 }
 
-// ================= CHART.JS =================
+// ========== UI UPDATE ==========
+function updateUI(data) {
+    // Main values
+    els.temp.textContent = data.t.toFixed(1);
+    els.hum.textContent = data.h.toFixed(1);
+    
+    // Battery (fake calculation for now)
+    const pct = Math.max(0, Math.min(100, (data.v - 3300) / (4200 - 3300) * 100));
+    els.batt.textContent = Math.round(pct);
+    els.voltage.textContent = Math.round(data.v);
+    els.days.textContent = Math.round(pct * 5);
+    
+    // Calculated values
+    const dewPoint = calculateDewPoint(data.t, data.h);
+    els.dew.textContent = dewPoint.toFixed(1);
+    
+    const heatIndex = calculateHeatIndex(data.t, data.h);
+    els.feelsLike.textContent = heatIndex.toFixed(1);
+    
+    const absHumidity = calculateAbsoluteHumidity(data.t, data.h);
+    els.absHum.textContent = absHumidity.toFixed(1) + " g/m³";
+    
+    // Mold risk
+    let risk = "Low";
+    let riskColor = "#10b981";
+    if (data.h > 60 && data.t > 20) { risk = "Medium"; riskColor = "#f59e0b"; }
+    if (data.h > 75 && data.t > 25) { risk = "High"; riskColor = "#ef4444"; }
+    els.mold.textContent = risk;
+    els.mold.style.color = riskColor;
+    
+    // Comfort
+    let comfort = "Comfortable";
+    if (data.t < 18) comfort = "Chilly";
+    if (data.t > 26) comfort = "Warm";
+    if (data.h > 65) comfort += " & Humid";
+    els.comfort.textContent = comfort;
+    
+    // Rain alert
+    checkRainAlert(data);
+}
+
+// ========== CHART INITIALIZATION ==========
 function initChart() {
     const ctx = document.getElementById('mainChart').getContext('2d');
-
-    // Gradient for Temperature
+    
     const gradientTemp = ctx.createLinearGradient(0, 0, 0, 400);
     gradientTemp.addColorStop(0, 'rgba(244, 63, 94, 0.5)');
     gradientTemp.addColorStop(1, 'rgba(244, 63, 94, 0)');
-
-    // Gradient for Humidity
+    
     const gradientHum = ctx.createLinearGradient(0, 0, 0, 400);
     gradientHum.addColorStop(0, 'rgba(59, 130, 246, 0.5)');
     gradientHum.addColorStop(1, 'rgba(59, 130, 246, 0)');
-
+    
     chart = new Chart(ctx, {
         type: 'line',
         data: {
@@ -220,14 +263,9 @@ function initChart() {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            interaction: {
-                mode: 'index',
-                intersect: false,
-            },
+            interaction: { mode: 'index', intersect: false },
             plugins: {
-                legend: {
-                    labels: { color: '#cbd5e1' }
-                }
+                legend: { labels: { color: '#cbd5e1' } }
             },
             scales: {
                 x: {
@@ -253,31 +291,27 @@ function initChart() {
     });
 }
 
-// ================= SIMULATION =================
+// ========== DEMO MODE ==========
 let simInterval;
 function startSimulation() {
     if (simInterval) clearInterval(simInterval);
-
-    els.status.innerHTML = '<i class="fa-solid fa-circle-check"></i> Live (Simulated)';
-
-    // Generate initial history
+    
+    els.status.innerHTML = '<i class="fa-solid fa-circle-check"></i> Demo Mode';
+    
     const now = new Date();
     historicalData = [];
     for (let i = 20; i > 0; i--) {
-        const t = new Date(now.getTime() - i * 30 * 60000);
         historicalData.push({
             t: 22 + Math.sin(i) * 2 + Math.random(),
             h: 50 + Math.cos(i) * 5 + Math.random(),
             v: 4100 - (i * 2),
-            ts: t
+            ts: new Date(now.getTime() - i * 30 * 60000)
         });
     }
-
-    // Update UI with initial data
+    
     updateUI(historicalData[historicalData.length - 1]);
     updateChart();
-
-    // Live updates
+    
     simInterval = setInterval(() => {
         const last = historicalData[historicalData.length - 1];
         const newReading = {
@@ -286,109 +320,43 @@ function startSimulation() {
             v: last.v - 0.1,
             ts: new Date()
         };
-
+        
         if (historicalData.length > 50) historicalData.shift();
         historicalData.push(newReading);
-
+        
         updateUI(newReading);
         updateChart();
     }, 2000);
 }
 
-function stopSimulation() {
-    if (simInterval) {
-        clearInterval(simInterval);
-        simInterval = null;
-    }
-}
-
-function updateUI(data) {
-    els.temp.textContent = data.t.toFixed(1);
-    els.hum.textContent = data.h.toFixed(1);
-
-    // Battery Logic (Li-ion: 4.2V to 3.3V)
-    const pct = Math.max(0, Math.min(100, (data.v - 3300) / (4200 - 3300) * 100));
-    els.batt.textContent = Math.round(pct);
-    els.voltage.textContent = Math.round(data.v);
-    els.days.textContent = Math.round(pct * 5);
-
-    // Derived Metrics
-    const dp = calculateDewPoint(data.t, data.h);
-    els.dew.textContent = dp.toFixed(1);
-
-    const hi = calculateHeatIndex(data.t, data.h);
-    els.feelsLike.textContent = hi.toFixed(1);
-
-    const absHum = calculateAbsoluteHumidity(data.t, data.h);
-    els.absHum.textContent = absHum.toFixed(1) + " g/m³";
-
-    // Mold Risk
-    let risk = "Low";
-    let riskColor = "#10b981";
-    if (data.h > 60 && data.t > 20) { risk = "Medium"; riskColor = "#f59e0b"; }
-    if (data.h > 75 && data.t > 25) { risk = "High"; riskColor = "#ef4444"; }
-    els.mold.textContent = risk;
-    els.mold.style.color = riskColor;
-
-    // Comfort
-    let comfort = "Comfortable";
-    if (data.t < 18) comfort = "Chilly";
-    if (data.t > 26) comfort = "Warm";
-    if (data.h > 65) comfort += " & Humid";
-    els.comfort.textContent = comfort;
-
-    // Rain Alert
-    checkRainAlert(data);
-}
-
-// ================= RAIN ALERT SYSTEM =================
+// ========== RAIN ALERT ==========
 const WEATHER_API = "https://api.open-meteo.com/v1/forecast?latitude=12.76&longitude=75.20&current_weather=true";
 let forecastRain = false;
 let lastWeatherCheck = 0;
 
 async function checkRainAlert(currentData) {
     const now = Date.now();
-
+    
     if (now - lastWeatherCheck > 15 * 60 * 1000) {
         try {
             const res = await fetch(WEATHER_API);
             const data = await res.json();
             const code = data.current_weather.weathercode;
             forecastRain = (code >= 50 && code <= 67) || (code >= 80 && code <= 99);
-
-            const rainText = forecastRain ? "Rain Predicted" : "No Rain Predicted";
+            
+            const rainText = forecastRain ? "Rain Predicted" : "Clear";
             document.getElementById('insight-rain-sub').textContent = `Forecast: ${rainText}`;
             lastWeatherCheck = now;
         } catch (e) {
             console.error("Weather API Error", e);
         }
     }
-
-    const thirtyMinsAgo = new Date(currentData.ts.getTime() - 30 * 60000);
-    const oldData = historicalData.find(d => d.ts >= thirtyMinsAgo);
-
-    let localTrend = false;
-    if (oldData) {
-        const humRise = currentData.h - oldData.h;
-        const tempDrop = oldData.t - currentData.t;
-        if (humRise > 5 && tempDrop > 0.5) {
-            localTrend = true;
-        }
-    }
-
+    
     const alertCard = document.getElementById('alert-card');
     const alertVal = document.getElementById('insight-rain');
-
-    if (forecastRain && localTrend) {
-        alertVal.textContent = "HIGH RISK";
-        alertVal.style.color = "#ef4444";
-        alertCard.classList.add('alert-active');
-    } else if (forecastRain) {
+    
+    if (forecastRain) {
         alertVal.textContent = "Moderate Risk";
-        alertVal.style.color = "#f59e0b";
-        alertCard.classList.remove('alert-active');
-    } else if (localTrend) {
-        alertVal.textContent = "Local Spike";
         alertVal.style.color = "#f59e0b";
         alertCard.classList.remove('alert-active');
     } else {
@@ -398,7 +366,7 @@ async function checkRainAlert(currentData) {
     }
 }
 
-// ================= PHYSICS FORMULAS =================
+// ========== CALCULATIONS ==========
 function calculateDewPoint(T, RH) {
     const a = 17.27;
     const b = 237.7;
@@ -417,15 +385,13 @@ function calculateHeatIndex(T, RH) {
     const c7 = 0.002211732;
     const c8 = 0.00072546;
     const c9 = -0.000003582;
-    return c1 + c2 * T + c3 * RH + c4 * T * RH + c5 * T * T + c6 * RH * RH + c7 * T * T * RH + c8 * T * RH * RH + c9 * T * T * RH * RH;
+    return c1 + c2*T + c3*RH + c4*T*RH + c5*T*T + c6*RH*RH + c7*T*T*RH + c8*T*RH*RH + c9*T*T*RH*RH;
 }
 
 function calculateAbsoluteHumidity(T, RH) {
     return (6.112 * Math.exp((17.67 * T) / (T + 243.5)) * RH * 2.1674) / (273.15 + T);
 }
 
-// Chart range controls (placeholder functions)
 function setRange(range) {
-    console.log('Set range to:', range);
-    // You can implement filtering of historicalData here
+    console.log('Range changed to:', range);
 }
