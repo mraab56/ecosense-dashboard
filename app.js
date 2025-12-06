@@ -3,13 +3,14 @@
 
 const CONFIG = {
     demoMode: false,
-    updateInterval: 180000, // 3 minutes in milliseconds
+    updateInterval: 60000, // 1 minute in milliseconds (60 seconds)
     firebaseUrl: "https://ecosense-b00a7-default-rtdb.asia-southeast1.firebasedatabase.app/readings.json"
 };
 
 let chart;
 let historicalData = [];
 let firebaseInterval;
+let lastProcessedTimestamp = 0; // Track last processed data
 
 // Get all DOM elements
 const els = {
@@ -55,7 +56,10 @@ async function startFirebaseFetching() {
     console.log('📡 Starting Firebase data fetching...');
     els.status.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Connecting...';
     
-    await fetchFirebaseData();
+    // First load: get initial history (last 50 readings)
+    await fetchInitialHistory();
+    
+    // Then start regular updates (every 1 minute, averaging new data)
     firebaseInterval = setInterval(fetchFirebaseData, CONFIG.updateInterval);
 }
 
@@ -65,8 +69,8 @@ function stopFirebaseFetching() {
     }
 }
 
-async function fetchFirebaseData() {
-    console.log('⬇️ Fetching data from Firebase...');
+async function fetchInitialHistory() {
+    console.log('📚 Loading initial history...');
     
     try {
         const response = await fetch(CONFIG.firebaseUrl);
@@ -83,7 +87,98 @@ async function fetchFirebaseData() {
             return;
         }
         
-        console.log('✅ Data received! Processing...');
+        // Convert to array
+        const allReadings = Object.entries(data).map(([key, value]) => ({
+            id: key,
+            ...value
+        }));
+        
+        // Filter valid readings
+        const validReadings = allReadings.filter(r => 
+            r.temperature !== undefined && 
+            r.humidity !== undefined &&
+            r.temperature !== 0 &&
+            r.humidity !== 0
+        );
+        
+        // Sort by timestamp (newest first)
+        validReadings.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        
+        // Take last 50 readings
+        const recentReadings = validReadings.slice(0, 50);
+        
+        // Convert to our format
+        historicalData = recentReadings.map(r => {
+            let ts;
+            if (r.timestamp < 946684800000) {
+                ts = new Date(r.timestamp * 1000);
+            } else {
+                ts = new Date(r.timestamp);
+            }
+            
+            return {
+                t: r.temperature,
+                h: r.humidity,
+                v: 3300,
+                ts: ts,
+                rssi: r.rssi || 0,
+                count: 1
+            };
+        });
+        
+        // Sort by time (oldest to newest)
+        historicalData.sort((a, b) => a.ts - b.ts);
+        
+        console.log('✅ Loaded', historicalData.length, 'historical readings');
+        
+        if (historicalData.length > 0) {
+            const latest = historicalData[historicalData.length - 1];
+            
+            // Set lastProcessedTimestamp to the latest reading
+            if (validReadings[0].timestamp) {
+                lastProcessedTimestamp = validReadings[0].timestamp;
+            }
+            
+            console.log('🌡️ Latest historical reading:', {
+                temp: latest.t.toFixed(1),
+                hum: latest.h.toFixed(1),
+                time: latest.ts.toLocaleString()
+            });
+            
+            // Update UI
+            const lastTime = latest.ts.toLocaleTimeString();
+            els.status.innerHTML = `<i class="fa-solid fa-circle-check"></i> Live | ${lastTime}`;
+            
+            updateUI(latest);
+            updateChart();
+            
+            console.log('✅ Initial display ready!');
+        }
+        
+    } catch (error) {
+        console.error('❌ Initial load error:', error);
+        els.status.innerHTML = '<i class="fa-solid fa-circle-xmark"></i> Error';
+    }
+}
+
+async function fetchFirebaseData() {
+    console.log('⬇️ Checking for new data...');
+    
+    try {
+        const response = await fetch(CONFIG.firebaseUrl);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data || Object.keys(data).length === 0) {
+            console.log('⚠️ No data in Firebase yet');
+            return;
+        }
+        
+        console.log('✅ Data received! Processing new readings...');
         processData(data);
         
     } catch (error) {
@@ -106,65 +201,89 @@ function processData(firebaseData) {
         r.temperature !== undefined && 
         r.humidity !== undefined &&
         r.temperature !== 0 &&
-        r.humidity !== 0
+        r.humidity !== 0 &&
+        r.timestamp > lastProcessedTimestamp // Only new readings
     );
     
-    console.log('✅ Valid readings:', validReadings.length);
+    console.log('✅ Valid NEW readings since last check:', validReadings.length);
     
     if (validReadings.length === 0) {
-        console.log('⚠️ No valid readings found');
+        console.log('⚠️ No new readings since last update');
         return;
     }
     
-    // Sort by timestamp (newest first)
-    validReadings.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    // Calculate AVERAGE of all new readings
+    let sumTemp = 0;
+    let sumHum = 0;
+    let sumRssi = 0;
+    let maxTimestamp = 0;
     
-    // Take only the last 50 readings
-    const recentReadings = validReadings.slice(0, 50);
-    
-    // Convert to our format
-    historicalData = recentReadings.map(r => {
-        // Fix timestamp: convert from seconds to milliseconds if needed
-        let ts;
-        if (r.timestamp < 946684800000) {
-            // Timestamp is in seconds, convert to milliseconds
-            ts = new Date(r.timestamp * 1000);
-        } else {
-            ts = new Date(r.timestamp);
+    validReadings.forEach(r => {
+        sumTemp += r.temperature;
+        sumHum += r.humidity;
+        sumRssi += (r.rssi || 0);
+        if (r.timestamp > maxTimestamp) {
+            maxTimestamp = r.timestamp;
         }
-        
-        return {
-            t: r.temperature,
-            h: r.humidity,
-            v: 3300, // Default voltage
-            ts: ts,
-            rssi: r.rssi || 0
-        };
     });
+    
+    const avgTemp = sumTemp / validReadings.length;
+    const avgHum = sumHum / validReadings.length;
+    const avgRssi = sumRssi / validReadings.length;
+    
+    console.log('📈 Average of', validReadings.length, 'readings:');
+    console.log('   Temp:', avgTemp.toFixed(2), '°C');
+    console.log('   Humidity:', avgHum.toFixed(2), '%');
+    
+    // Update last processed timestamp
+    lastProcessedTimestamp = maxTimestamp;
+    
+    // Fix timestamp: convert from seconds to milliseconds if needed
+    let ts;
+    if (maxTimestamp < 946684800000) {
+        ts = new Date(maxTimestamp * 1000);
+    } else {
+        ts = new Date(maxTimestamp);
+    }
+    
+    // Create averaged data point
+    const averagedReading = {
+        t: avgTemp,
+        h: avgHum,
+        v: 3300,
+        ts: ts,
+        rssi: avgRssi,
+        count: validReadings.length // How many readings were averaged
+    };
+    
+    // Add to historical data
+    historicalData.push(averagedReading);
+    
+    // Keep only last 50 data points
+    if (historicalData.length > 50) {
+        historicalData.shift();
+    }
     
     // Sort by time (oldest to newest for chart)
     historicalData.sort((a, b) => a.ts - b.ts);
     
-    console.log('📈 Processed data points:', historicalData.length);
+    console.log('📊 Total data points in history:', historicalData.length);
+    console.log('🌡️ Latest averaged reading:', {
+        temp: averagedReading.t.toFixed(1),
+        hum: averagedReading.h.toFixed(1),
+        samples: averagedReading.count,
+        time: ts.toLocaleString()
+    });
     
-    if (historicalData.length > 0) {
-        const latest = historicalData[historicalData.length - 1];
-        console.log('🌡️ Latest reading:', {
-            temp: latest.t,
-            hum: latest.h,
-            time: latest.ts.toLocaleString()
-        });
-        
-        // Update the status bar
-        const lastTime = latest.ts.toLocaleTimeString();
-        els.status.innerHTML = `<i class="fa-solid fa-circle-check"></i> Live | ${lastTime}`;
-        
-        // Update UI and chart
-        updateUI(latest);
-        updateChart();
-        
-        console.log('✅ Website updated!');
-    }
+    // Update the status bar
+    const lastTime = ts.toLocaleTimeString();
+    els.status.innerHTML = `<i class="fa-solid fa-circle-check"></i> Live | ${lastTime} (avg of ${averagedReading.count})`;
+    
+    // Update UI and chart
+    updateUI(averagedReading);
+    updateChart();
+    
+    console.log('✅ Website updated with averaged data!');
 }
 
 function updateChart() {
