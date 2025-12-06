@@ -16,16 +16,12 @@ let lastProcessedTimestamp = 0; // Track last processed data
 const els = {
     temp: document.getElementById('val-temp'),
     hum: document.getElementById('val-hum'),
-    batt: document.getElementById('val-batt'),
-    voltage: document.getElementById('val-voltage'),
-    days: document.getElementById('val-days'),
     feelsLike: document.getElementById('val-feels-like'),
     dew: document.getElementById('val-dew'),
     mold: document.getElementById('insight-mold'),
     comfort: document.getElementById('insight-comfort'),
     absHum: document.getElementById('insight-abs-hum'),
-    status: document.getElementById('connection-status'),
-    demoToggle: document.getElementById('demo-mode-toggle')
+    status: document.getElementById('connection-status')
 };
 
 // Start when page loads
