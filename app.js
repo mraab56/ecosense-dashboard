@@ -1,9 +1,9 @@
-// App.js for EcoSense Dashboard - COMPLETE FIXED VERSION
+// App.js for EcoSense Dashboard - FIXED VERSION
 
 // Configuration
 const CONFIG = {
     demoMode: false,
-    updateInterval: 180000, // Check Firebase every 3 minutes (180 seconds = 180000ms)
+    updateInterval: 10000, // Check Firebase every 10 seconds
     firebaseUrl: "https://ecosense-b00a7-default-rtdb.asia-southeast1.firebasedatabase.app/readings.json"
 };
 
@@ -40,7 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (CONFIG.demoMode) {
         startSimulation();
     } else {
-        // Start real Firebase data fetching
+        // FIXED: Start real Firebase data fetching
         startFirebaseFetching();
     }
 
@@ -59,12 +59,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ================= FIREBASE DATA FETCHING =================
 async function startFirebaseFetching() {
-    els.status.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Connecting...';
+    els.status.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Connecting to Firebase...';
     
     // Fetch immediately
     await fetchFirebaseData();
     
-    // Then fetch every 60 seconds
+    // Then fetch every 10 seconds
     firebaseInterval = setInterval(fetchFirebaseData, CONFIG.updateInterval);
 }
 
@@ -76,29 +76,22 @@ function stopFirebaseFetching() {
 }
 
 async function fetchFirebaseData() {
-    console.log('🔄 Fetching data from Firebase...');
-    console.log('URL:', CONFIG.firebaseUrl);
-    
     try {
         const response = await fetch(CONFIG.firebaseUrl);
-        
-        console.log('Response status:', response.status);
-        console.log('Response OK:', response.ok);
         
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
         
         const data = await response.json();
-        console.log('Raw Firebase data:', data);
         
         if (!data || Object.keys(data).length === 0) {
-            els.status.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> Waiting for data...';
-            console.log('⚠️ No sensor data yet. ESP8266 will send data every 3 minutes.');
+            els.status.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> No Data Yet';
+            console.log('Waiting for sensor data...');
             return;
         }
         
-        // Convert Firebase object to array and sort by timestamp (newest first)
+        // Convert Firebase object to array and sort by timestamp
         const readings = Object.entries(data)
             .map(([key, value]) => ({
                 id: key,
@@ -106,118 +99,67 @@ async function fetchFirebaseData() {
             }))
             .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         
-        console.log('✅ Fetched readings count:', readings.length);
-        console.log('First reading:', readings[0]);
+        // Update status
+        els.status.innerHTML = '<i class="fa-solid fa-circle-check"></i> Live from Firebase';
         
-        // Get the latest reading for timestamp
-        const latestReading = readings[0];
-        const lastDataTime = latestReading.timestamp ? 
-            new Date(latestReading.timestamp).toLocaleTimeString() : 
-            'Unknown';
-        
-        // Update status with last data time
-        els.status.innerHTML = `<i class="fa-solid fa-circle-check"></i> Live | Last: ${lastDataTime}`;
-        
-        // Process readings
+        // Process readings into our historicalData format
         processFirebaseReadings(readings);
         
     } catch (error) {
-        console.error('❌ Firebase fetch error:', error);
+        console.error('Firebase fetch error:', error);
         els.status.innerHTML = '<i class="fa-solid fa-circle-xmark"></i> Connection Error';
+        
+        // Show error details in console for debugging
         console.log('Error details:', error.message);
     }
 }
 
 function processFirebaseReadings(readings) {
-    console.log('Processing readings, total count:', readings.length);
-    
-    // OPTIMIZATION: Only take the last 50 readings to avoid performance issues
-    const recentReadings = readings.slice(0, 50);
-    console.log('Processing only the most recent 50 readings');
-    
     // Clear historical data
     historicalData = [];
     
     // Process each reading
-    recentReadings.forEach((reading, index) => {
-        let dataAdded = false;
-        
-        // FORMAT 1: Old batched format {boot, data: [{t, h, v}]}
+    readings.forEach(reading => {
         if (reading.data && Array.isArray(reading.data)) {
-            reading.data.forEach((dataPoint) => {
-                // Skip invalid readings
-                if (dataPoint.t === 0 && dataPoint.h === 0) return;
-                
-                // Fix timestamp: if it's too small, it's in seconds not milliseconds
-                let timestamp;
-                if (reading.timestamp) {
-                    const ts = reading.timestamp;
-                    // If timestamp is less than year 2000 in milliseconds, it's probably in seconds
-                    timestamp = ts < 946684800000 ? new Date(ts * 1000) : new Date(ts);
-                } else {
-                    timestamp = new Date();
-                }
+            // Batched data format from ESP8266
+            reading.data.forEach((dataPoint, index) => {
+                const timestamp = reading.timestamp ? 
+                    new Date(reading.timestamp + (index * 1000)) : // Spread batched readings over time
+                    new Date();
                 
                 historicalData.push({
-                    t: dataPoint.t,
-                    h: dataPoint.h,
+                    t: dataPoint.t || 0,
+                    h: dataPoint.h || 0,
                     v: dataPoint.v || 3300,
-                    ts: timestamp,
-                    rssi: 0
+                    ts: timestamp
                 });
-                dataAdded = true;
             });
-        }
-        // FORMAT 2: New single reading {temperature, humidity, rssi, ...}
-        else if (reading.temperature !== undefined && reading.humidity !== undefined) {
-            // Skip invalid readings
-            if (reading.temperature === 0 && reading.humidity === 0) return;
-            
-            // Fix timestamp: if it's too small, it's in seconds not milliseconds
-            let timestamp;
-            if (reading.timestamp) {
-                const ts = reading.timestamp;
-                // If timestamp is less than year 2000 in milliseconds, it's probably in seconds
-                timestamp = ts < 946684800000 ? new Date(ts * 1000) : new Date(ts);
-            } else {
-                timestamp = new Date();
-            }
+        } else if (reading.temperature !== undefined) {
+            // Single reading format
+            const timestamp = reading.timestamp ? new Date(reading.timestamp) : new Date();
             
             historicalData.push({
                 t: reading.temperature,
                 h: reading.humidity,
-                v: 3300,
-                ts: timestamp,
-                rssi: reading.rssi || 0
+                v: reading.rssi ? 3700 : 3300, // Default voltage if not provided
+                ts: timestamp
             });
-            dataAdded = true;
-        }
-        
-        if (!dataAdded) {
-            console.log(`⚠️ Skipping reading ${index} - unknown format`);
         }
     });
     
-    // Sort by timestamp (oldest to newest for chart)
+    // Sort by timestamp
     historicalData.sort((a, b) => a.ts - b.ts);
     
-    console.log('✅ Total valid data points:', historicalData.length);
+    // Keep only last 50 readings for performance
+    if (historicalData.length > 50) {
+        historicalData = historicalData.slice(-50);
+    }
     
     // Update UI with latest reading
     if (historicalData.length > 0) {
         const latest = historicalData[historicalData.length - 1];
-        console.log('📊 Latest reading:', {
-            temp: latest.t,
-            hum: latest.h,
-            time: latest.ts.toLocaleString()
-        });
-        
         updateUI(latest);
         updateChart();
-        
-        console.log('✅ UI and Chart updated successfully!');
-    } else {
-        console.log('❌ No valid data to display!');
     }
 }
 
